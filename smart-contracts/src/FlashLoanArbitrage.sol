@@ -26,6 +26,9 @@ contract FlashLoanArbitrage is IFlashLoanRecipient, Ownable {
 
     uint256 public SWAP_TIMEOUT = 5 minutes;
 
+    uint256 public constant DEX_1 = 0;
+    uint256 public constant DEX_2 = 1;
+
     constructor(
         address _balancerVault,
         address[] memory _dexRouters,
@@ -96,7 +99,7 @@ contract FlashLoanArbitrage is IFlashLoanRecipient, Ownable {
         uint256 amountToRepay = amounts[0] + feeAmounts[0];
 
         // Perform arbitrage between DEXes
-        // performArbitrage(address(tokens[0]), tokenToSwap, amounts[0]);
+        performArbitrage(address(tokens[0]), tokenToSwap, amounts[0]);
 
         // Make sure we have enough to repay the loan plus fee
         uint256 balance = tokens[0].balanceOf(address(this));
@@ -182,5 +185,40 @@ contract FlashLoanArbitrage is IFlashLoanRecipient, Ownable {
             address(this),
             block.timestamp + SWAP_TIMEOUT
         );
+    }
+
+    /**
+     * @dev Performs the arbitrage between different DEXes
+     * @param tokenBorrowed Address of the borrowed token
+     * @param tokenToSwap Address of the token to swap for
+     * @param amount Amount of tokens borrowed
+     */
+    function performArbitrage(address tokenBorrowed, address tokenToSwap, uint256 amount) internal {
+        // Check price on DEX 1
+        uint256 dex1SwapTokenPrice = getDEXPrice(DEX_1, tokenBorrowed, tokenToSwap, amount);
+
+        // Check price on DEX 2
+        uint256 dex2SwapTokenPrice = getDEXPrice(DEX_2, tokenBorrowed, tokenToSwap, amount);
+
+        // Determine which DEX has a better rate
+        if (dex1SwapTokenPrice > dex2SwapTokenPrice) {
+            // Swap on DEX 2 first, then on DEX 1
+            swapOnDEX(DEX_2, tokenBorrowed, tokenToSwap, amount);
+
+            // Get the balance of tokenToSwap
+            uint256 tokenToSwapAmount = IERC20(tokenToSwap).balanceOf(address(this));
+
+            // Swap back on DEX 1
+            swapOnDEX(DEX_1, tokenToSwap, tokenBorrowed, tokenToSwapAmount);
+        } else {
+            // Swap on DEX 1 first, then on DEX 2
+            swapOnDEX(DEX_1, tokenBorrowed, tokenToSwap, amount);
+
+            // Get the balance of tokenToSwap
+            uint256 tokenToSwapAmount = IERC20(tokenToSwap).balanceOf(address(this));
+
+            // Swap back on DEX 2
+            swapOnDEX(DEX_2, tokenToSwap, tokenBorrowed, tokenToSwapAmount);
+        }
     }
 }
