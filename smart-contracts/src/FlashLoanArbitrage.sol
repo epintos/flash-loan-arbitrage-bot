@@ -25,6 +25,7 @@ contract FlashLoanArbitrage is IFlashLoanRecipient, Ownable {
     address[] public dexFactories;
 
     uint256 public SWAP_TIMEOUT = 5 minutes;
+    uint256 public BALANCER_FEE = 0;
 
     uint256 public constant DEX_1 = 0;
     uint256 public constant DEX_2 = 1;
@@ -220,5 +221,76 @@ contract FlashLoanArbitrage is IFlashLoanRecipient, Ownable {
             // Swap back on DEX 2
             swapOnDEX(DEX_2, tokenToSwap, tokenBorrowed, tokenToSwapAmount);
         }
+    }
+
+    /**
+     * @dev Function to check potential profit including flash loan fees
+     * @param tokenToBorrow Address of the token to borrow
+     * @param tokenToSwap Address of the token to swap for
+     * @param amount Amount of tokens to borrow
+     * @return profitability profit amount
+     */
+    function checkArbitrageProfitability(
+        address tokenToBorrow,
+        address tokenToSwap,
+        uint256 amount
+    )
+        external
+        view
+        returns (int256 profitability)
+    {
+        // Check price on DEX 1
+        uint256 dex1SwapTokenPrice = getDEXPrice(DEX_1, tokenToBorrow, tokenToSwap, amount);
+
+        // Check price on DEX 2
+        uint256 dex2SwapTokenPrice = getDEXPrice(DEX_2, tokenToBorrow, tokenToSwap, amount);
+
+        // Calculate potential profit (accounting for Balancer's flash loan fee)
+        uint256 flashLoanFee = amount * BALANCER_FEE / 1000;
+
+        uint256 finalAmount;
+
+        if (dex1SwapTokenPrice > dex2SwapTokenPrice) {
+            // Calculate profit from DEX 2 -> DEX 1 route
+            finalAmount = getDEXPrice(DEX_1, tokenToSwap, tokenToBorrow, dex2SwapTokenPrice);
+        } else {
+            // Calculate profit from DEX 1 -> DEX 2 route
+            finalAmount = getDEXPrice(DEX_2, tokenToSwap, tokenToBorrow, dex1SwapTokenPrice);
+        }
+        // Check if profitable after fees
+        if (finalAmount > amount + flashLoanFee) {
+            profitability = int256(finalAmount - amount - flashLoanFee);
+        } else {
+            profitability = -int256(amount + flashLoanFee - finalAmount);
+        }
+    }
+
+    /**
+     * @notice Updates the Balancer flash loan fee rate
+     * @param _newFeeRate New fee rate (10 = 0.1%)
+     */
+    function updateBalancerFeeRate(uint256 _newFeeRate) external onlyOwner {
+        BALANCER_FEE = _newFeeRate;
+    }
+
+    /**
+     * @notice Updates the SWAP_TIMEOUT value
+     * @param _newTimeout New timeout value
+     */
+    function updateSwapTimeout(uint256 _newTimeout) external onlyOwner {
+        SWAP_TIMEOUT = _newTimeout;
+    }
+
+    /**
+     * @notice Updates the DEXes routers and factoreies
+     * @param _dexRouters Array of DEX router addresses
+     * @param _dexFactories Array of DEX factory addresses
+     */
+    function updateDEXes(address[] memory _dexRouters, address[] memory _dexFactories) external onlyOwner {
+        if (_dexRouters.length != _dexFactories.length && _dexRouters.length != 2) {
+            revert FlashLoanArbitrage__InvalidAmountOfRoutersAndFactories();
+        }
+        dexRouters = _dexRouters;
+        dexFactories = _dexFactories;
     }
 }
