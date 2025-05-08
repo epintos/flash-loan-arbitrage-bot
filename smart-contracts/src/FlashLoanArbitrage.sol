@@ -16,15 +16,23 @@ contract FlashLoanArbitrage is IFlashLoanRecipient, Ownable {
     error FlashLoanArbitrage__InvalidAmountOfRoutersAndFactories();
 
     // Address of the Balancer Vault for flash loans
-    address private balancerVault;
+    address public balancerVault;
 
     // Router addresses for different Uniswap V2 Fork DEXes
-    address[] private dexRouters;
+    address[] public dexRouters;
 
     // Factory addresses for different Uniswap V2 Fork DEXes
-    address[] private dexFactories;
+    address[] public dexFactories;
 
-    constructor(address _balancerVault, address _dexRouters, address _dexFactories) Ownable(msg.sender) {
+    uint256 public SWAP_TIMEOUT = 5 minutes;
+
+    constructor(
+        address _balancerVault,
+        address[] memory _dexRouters,
+        address[] memory _dexFactories
+    )
+        Ownable(msg.sender)
+    {
         balancerVault = _balancerVault;
         if (_dexRouters.length != _dexFactories.length && _dexRouters.length != 2) {
             revert FlashLoanArbitrage__InvalidAmountOfRoutersAndFactories();
@@ -147,5 +155,32 @@ contract FlashLoanArbitrage is IFlashLoanRecipient, Ownable {
         // Proudct formula: x * y = k => (tokenAReserve + amountIn * 0.997) * (tokenB - amountOut) = k
         // https://docs.uniswap.org/contracts/v2/concepts/protocol-overview/glossary#constant-product-formula
         amountOut = (amountIn * 997 * reserveOut) / ((reserveIn * 1000) + (amountIn * 997));
+    }
+
+    /**
+     * @dev Performs a swap on Uniswap V2 fork DEX
+     * @param tokenIn Address of the input token
+     * @param tokenOut Address of the output token
+     * @param amountIn Amount of input tokens
+     */
+    function swapOnDEX(uint256 dexIndex, address tokenIn, address tokenOut, uint256 amountIn) internal {
+        address routerAddress = dexRouters[dexIndex];
+
+        // Approve the router to spend tokens
+        IERC20(tokenIn).approve(routerAddress, amountIn);
+
+        // Setup the path for the swap
+        address[] memory path = new address[](2);
+        path[0] = tokenIn;
+        path[1] = tokenOut;
+
+        // Execute the swap
+        IUniswapV2Router02(routerAddress).swapExactTokensForTokens(
+            amountIn,
+            0, // Accept any amount of output tokens
+            path,
+            address(this),
+            block.timestamp + SWAP_TIMEOUT
+        );
     }
 }
