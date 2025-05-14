@@ -1,4 +1,4 @@
-// SDPX-License-Identifier: MIT
+// SPDX-License-Identifier: MIT
 
 pragma solidity >=0.7.0 <0.9.0;
 
@@ -6,6 +6,7 @@ import { Ownable } from "@openzeppelin/contracts/access/Ownable.sol";
 import { IVault } from "@balancer-labs/v2-interfaces/vault/IVault.sol";
 import { IFlashLoanRecipient } from "@balancer-labs/v2-interfaces/vault/IFlashLoanRecipient.sol";
 import { IERC20 } from "@balancer-labs/v2-interfaces/solidity-utils/openzeppelin/IERC20.sol";
+
 import { IUniswapV2Router02 } from "@uniswap/v2-periphery/contracts/interfaces/IUniswapV2Router02.sol";
 import { IUniswapV2Factory } from "@uniswap/v2-core/contracts/interfaces/IUniswapV2Factory.sol";
 import { IUniswapV2Pair } from "@uniswap/v2-core/contracts/interfaces/IUniswapV2Pair.sol";
@@ -62,6 +63,8 @@ contract FlashLoanArbitrage is IFlashLoanRecipient, Ownable {
         uint256[] memory amounts = new uint256[](1);
         amounts[0] = amount;
 
+        IVault(balancerVault).getAuthorizer();
+
         // Execute the flash loan
         IVault(balancerVault).flashLoan(
             this, // Flash loan recipient (this contract)
@@ -78,7 +81,6 @@ contract FlashLoanArbitrage is IFlashLoanRecipient, Ownable {
      * @param feeAmounts Array of fee amounts to be paid for each token
      * @param userData Additional data passed to the callback
      *
-     * @dev Currently Balancer fees are 0.
      */
     function receiveFlashLoan(
         IERC20[] memory tokens,
@@ -109,16 +111,16 @@ contract FlashLoanArbitrage is IFlashLoanRecipient, Ownable {
             revert FlashLoanArbitrage__NotEnoughToRepayFlashLoan();
         }
 
-        // Approve the Balancer Vault to pull the tokens back
-        tokens[0].approve(balancerVault, amountToRepay);
+        tokens[0].transfer(balancerVault, amountToRepay);
     }
 
     /**
-     * @dev Gets the pair price from a Uniswap V2 fork DEX
+     * @notice Gets the amount of tokenOut including fees from a Uniswap V2 fork DEX
      * @param tokenIn Address of the input token
      * @param tokenOut Address of the output token
      * @param amountIn Amount of input tokens
      * @return amountOut Amount of output tokens
+     * @dev Uses UniSwap constant product formula x*y=k
      */
     function getDEXPrice(
         uint256 dexIndex,
@@ -168,23 +170,18 @@ contract FlashLoanArbitrage is IFlashLoanRecipient, Ownable {
      * @param amountIn Amount of input tokens
      */
     function swapOnDEX(uint256 dexIndex, address tokenIn, address tokenOut, uint256 amountIn) internal {
+        require(amountIn > 0, "Zero input amount");
         address routerAddress = dexRouters[dexIndex];
 
-        // Approve the router to spend tokens
         IERC20(tokenIn).approve(routerAddress, amountIn);
 
-        // Setup the path for the swap
         address[] memory path = new address[](2);
         path[0] = tokenIn;
         path[1] = tokenOut;
 
-        // Execute the swap
+        uint256 minOut = 1; // Minimum of 1 wei to prevent complete slippage
         IUniswapV2Router02(routerAddress).swapExactTokensForTokens(
-            amountIn,
-            0, // Accept any amount of output tokens
-            path,
-            address(this),
-            block.timestamp + SWAP_TIMEOUT
+            amountIn, minOut, path, address(this), block.timestamp + SWAP_TIMEOUT
         );
     }
 
@@ -195,31 +192,24 @@ contract FlashLoanArbitrage is IFlashLoanRecipient, Ownable {
      * @param amount Amount of tokens borrowed
      */
     function performArbitrage(address tokenBorrowed, address tokenToSwap, uint256 amount) internal {
-        // Check price on DEX 1
-        uint256 dex1SwapTokenPrice = getDEXPrice(DEX_1, tokenBorrowed, tokenToSwap, amount);
+        // Get prices for both directions
+        uint256 dex1Price = getDEXPrice(DEX_1, tokenBorrowed, tokenToSwap, amount);
+        uint256 dex2Price = getDEXPrice(DEX_2, tokenToSwap, tokenBorrowed, dex1Price);
 
-        // Check price on DEX 2
-        uint256 dex2SwapTokenPrice = getDEXPrice(DEX_2, tokenBorrowed, tokenToSwap, amount);
+        uint256 dex2PriceAlt = getDEXPrice(DEX_2, tokenBorrowed, tokenToSwap, amount);
+        uint256 dex1PriceAlt = getDEXPrice(DEX_1, tokenToSwap, tokenBorrowed, dex2PriceAlt);
 
-        // Determine which DEX has a better rate
-        if (dex1SwapTokenPrice > dex2SwapTokenPrice) {
-            // Swap on DEX 2 first, then on DEX 1
-            swapOnDEX(DEX_2, tokenBorrowed, tokenToSwap, amount);
-
-            // Get the balance of tokenToSwap
-            uint256 tokenToSwapAmount = IERC20(tokenToSwap).balanceOf(address(this));
-
-            // Swap back on DEX 1
-            swapOnDEX(DEX_1, tokenToSwap, tokenBorrowed, tokenToSwapAmount);
-        } else {
-            // Swap on DEX 1 first, then on DEX 2
+        // Determine which path is more profitable
+        if (dex2Price > dex1PriceAlt) {
+            // Path 1: DEX1 -> DEX2
             swapOnDEX(DEX_1, tokenBorrowed, tokenToSwap, amount);
-
-            // Get the balance of tokenToSwap
-            uint256 tokenToSwapAmount = IERC20(tokenToSwap).balanceOf(address(this));
-
-            // Swap back on DEX 2
-            swapOnDEX(DEX_2, tokenToSwap, tokenBorrowed, tokenToSwapAmount);
+            uint256 received = IERC20(tokenToSwap).balanceOf(address(this));
+            swapOnDEX(DEX_2, tokenToSwap, tokenBorrowed, received);
+        } else {
+            // Path 2: DEX2 -> DEX1
+            swapOnDEX(DEX_2, tokenBorrowed, tokenToSwap, amount);
+            uint256 received = IERC20(tokenToSwap).balanceOf(address(this));
+            swapOnDEX(DEX_1, tokenToSwap, tokenBorrowed, received);
         }
     }
 
@@ -239,36 +229,26 @@ contract FlashLoanArbitrage is IFlashLoanRecipient, Ownable {
         view
         returns (int256 profitability)
     {
-        // Check price on DEX 1
-        uint256 dex1SwapTokenPrice = getDEXPrice(DEX_1, tokenToBorrow, tokenToSwap, amount);
+        uint256 path1Out = getDEXPrice(DEX_1, tokenToBorrow, tokenToSwap, amount);
+        uint256 path1Final = getDEXPrice(DEX_2, tokenToSwap, tokenToBorrow, path1Out);
 
-        // Check price on DEX 2
-        uint256 dex2SwapTokenPrice = getDEXPrice(DEX_2, tokenToBorrow, tokenToSwap, amount);
+        uint256 path2Out = getDEXPrice(DEX_2, tokenToBorrow, tokenToSwap, amount);
+        uint256 path2Final = getDEXPrice(DEX_1, tokenToSwap, tokenToBorrow, path2Out);
 
-        // Calculate potential profit (accounting for Balancer's flash loan fee)
+        uint256 bestFinal = path1Final > path2Final ? path1Final : path2Final;
         uint256 flashLoanFee = amount * BALANCER_FEE / 1000;
 
-        uint256 finalAmount;
-
-        if (dex1SwapTokenPrice > dex2SwapTokenPrice) {
-            // Calculate profit from DEX 2 -> DEX 1 route
-            finalAmount = getDEXPrice(DEX_1, tokenToSwap, tokenToBorrow, dex2SwapTokenPrice);
+        if (bestFinal > amount + flashLoanFee) {
+            profitability = int256(bestFinal - amount - flashLoanFee);
         } else {
-            // Calculate profit from DEX 1 -> DEX 2 route
-            finalAmount = getDEXPrice(DEX_2, tokenToSwap, tokenToBorrow, dex1SwapTokenPrice);
-        }
-        // Check if profitable after fees
-        if (finalAmount > amount + flashLoanFee) {
-            profitability = int256(finalAmount - amount - flashLoanFee);
-        } else {
-            profitability = -int256(amount + flashLoanFee - finalAmount);
+            profitability = -int256(amount + flashLoanFee - bestFinal);
         }
     }
-
     /**
      * @notice Updates the Balancer flash loan fee rate
      * @param _newFeeRate New fee rate (10 = 0.1%)
      */
+
     function updateBalancerFeeRate(uint256 _newFeeRate) external onlyOwner {
         BALANCER_FEE = _newFeeRate;
     }
