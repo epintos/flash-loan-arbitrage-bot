@@ -33,6 +33,8 @@ contract FlashLoanArbitrage is IFlashLoanRecipient, Ownable {
 
     uint256 private constant MINIMUM_OUTPUT = 1;
 
+    uint256 private constant SWAP_FEE = 997;
+
     constructor(address _balancerVault, address[] memory _dexRouters, address[] memory _dexPairs) Ownable(msg.sender) {
         balancerVault = _balancerVault;
         dexRouters[0] = _dexRouters[0];
@@ -111,94 +113,6 @@ contract FlashLoanArbitrage is IFlashLoanRecipient, Ownable {
     }
 
     /**
-     * @notice Gets the amount of tokenOut including fees from a Uniswap V2 fork DEX
-     * @param tokenIn Address of the input token
-     * @param tokenOut Address of the output token
-     * @param amountIn Amount of input tokens
-     * @return amountOut Amount of output tokens
-     * @dev Uses UniSwap constant product formula x*y=k
-     */
-    function getDEXPrice(
-        uint256 dexIndex,
-        address tokenIn,
-        address tokenOut,
-        uint256 amountIn
-    )
-        internal
-        view
-        returns (uint256 amountOut)
-    {
-        IUniswapV2Pair pair = IUniswapV2Pair(dexPairs[dexIndex]);
-
-        // Gets Liquidity pool reserves
-        (uint256 reserve0, uint256 reserve1,) = pair.getReserves();
-
-        // Reserves are ordered by token address
-        // This means that the token with the lower address is reserve0
-        (uint256 reserveIn, uint256 reserveOut) = tokenIn < tokenOut ? (reserve0, reserve1) : (reserve1, reserve0);
-
-        // Calculate the price using the constant product formula
-        // 0.3% fee: https://docs.uniswap.org/contracts/v2/concepts/advanced-topics/fees
-        // Proudct formula: x * y = k => (tokenAReserve + amountIn * 0.997) * (tokenB - amountOut) = k
-        // https://docs.uniswap.org/contracts/v2/concepts/protocol-overview/glossary#constant-product-formula
-        unchecked {
-            uint256 numerator = amountIn * 997 * reserveOut;
-            uint256 denominator = (reserveIn * 1000) + (amountIn * 997);
-            amountOut = numerator / denominator;
-        }
-    }
-
-    /**
-     * @dev Performs a swap on Uniswap V2 fork DEX
-     * @param tokenIn Address of the input token
-     * @param tokenOut Address of the output token
-     * @param amountIn Amount of input tokens
-     */
-    function swapOnDEX(uint256 dexIndex, address tokenIn, address tokenOut, uint256 amountIn) internal {
-        address routerAddress = dexRouters[dexIndex];
-
-        if (IERC20(tokenIn).allowance(address(this), routerAddress) < amountIn) {
-            IERC20(tokenIn).approve(routerAddress, type(uint256).max);
-        }
-
-        address[] memory path = new address[](2);
-        path[0] = tokenIn;
-        path[1] = tokenOut;
-
-        IUniswapV2Router02(routerAddress).swapExactTokensForTokens(
-            amountIn, MINIMUM_OUTPUT, path, address(this), block.timestamp + SWAP_TIMEOUT
-        );
-    }
-
-    /**
-     * @dev Performs the arbitrage between different DEXes
-     * @param tokenBorrowed Address of the borrowed token
-     * @param tokenToSwap Address of the token to swap for
-     * @param amount Amount of tokens borrowed
-     */
-    function performArbitrage(address tokenBorrowed, address tokenToSwap, uint256 amount) internal {
-        // Get prices for both directions
-        uint256 dex1Price = getDEXPrice(DEX_1, tokenBorrowed, tokenToSwap, amount);
-        uint256 dex2Price = getDEXPrice(DEX_2, tokenToSwap, tokenBorrowed, dex1Price);
-
-        uint256 dex2PriceAlt = getDEXPrice(DEX_2, tokenBorrowed, tokenToSwap, amount);
-        uint256 dex1PriceAlt = getDEXPrice(DEX_1, tokenToSwap, tokenBorrowed, dex2PriceAlt);
-
-        // Determine which path is more profitable
-        if (dex2Price > dex1PriceAlt) {
-            // Path 1: DEX1 -> DEX2
-            swapOnDEX(DEX_1, tokenBorrowed, tokenToSwap, amount);
-            uint256 received = IERC20(tokenToSwap).balanceOf(address(this));
-            swapOnDEX(DEX_2, tokenToSwap, tokenBorrowed, received);
-        } else {
-            // Path 2: DEX2 -> DEX1
-            swapOnDEX(DEX_2, tokenBorrowed, tokenToSwap, amount);
-            uint256 received = IERC20(tokenToSwap).balanceOf(address(this));
-            swapOnDEX(DEX_1, tokenToSwap, tokenBorrowed, received);
-        }
-    }
-
-    /**
      * @dev Function to check potential profit including flash loan fees
      * @param tokenToBorrow Address of the token to borrow
      * @param tokenToSwap Address of the token to swap for
@@ -215,11 +129,7 @@ contract FlashLoanArbitrage is IFlashLoanRecipient, Ownable {
         onlyOwner
         returns (int256 profitability)
     {
-        uint256 path1Out = getDEXPrice(DEX_1, tokenToBorrow, tokenToSwap, amount);
-        uint256 path1Final = getDEXPrice(DEX_2, tokenToSwap, tokenToBorrow, path1Out);
-
-        uint256 path2Out = getDEXPrice(DEX_2, tokenToBorrow, tokenToSwap, amount);
-        uint256 path2Final = getDEXPrice(DEX_1, tokenToSwap, tokenToBorrow, path2Out);
+        (uint256 path1Final, uint256 path2Final) = calculateBothPaths(tokenToBorrow, tokenToSwap, amount);
 
         uint256 bestFinal = path1Final > path2Final ? path1Final : path2Final;
 
@@ -272,5 +182,116 @@ contract FlashLoanArbitrage is IFlashLoanRecipient, Ownable {
         dexRouters[1] = _dexRouters[1];
         dexPairs[0] = _dexPairs[0];
         dexPairs[1] = _dexPairs[1];
+    }
+
+    /**
+     * @notice Gets the amount of tokenOut including fees from a Uniswap V2 fork DEX
+     * @param tokenIn Address of the input token
+     * @param tokenOut Address of the output token
+     * @param amountIn Amount of input tokens
+     * @return amountOut Amount of output tokens
+     * @dev Uses UniSwap constant product formula x*y=k
+     */
+    function getDEXPrice(
+        uint256 dexIndex,
+        address tokenIn,
+        address tokenOut,
+        uint256 amountIn
+    )
+        internal
+        view
+        returns (uint256 amountOut)
+    {
+        IUniswapV2Pair pair = IUniswapV2Pair(dexPairs[dexIndex]);
+
+        // Gets Liquidity pool reserves
+        (uint256 reserve0, uint256 reserve1,) = pair.getReserves();
+
+        // Reserves are ordered by token address
+        // This means that the token with the lower address is reserve0
+        (uint256 reserveIn, uint256 reserveOut) = tokenIn < tokenOut ? (reserve0, reserve1) : (reserve1, reserve0);
+
+        // Calculate the price using the constant product formula
+        // 0.3% fee: https://docs.uniswap.org/contracts/v2/concepts/advanced-topics/fees
+        // Proudct formula: x * y = k => (tokenAReserve + amountIn * 0.997) * (tokenB - amountOut) = k
+        // https://docs.uniswap.org/contracts/v2/concepts/protocol-overview/glossary#constant-product-formula
+        unchecked {
+            uint256 amountInWithFee = amountIn * SWAP_FEE;
+            uint256 numerator = amountInWithFee * reserveOut;
+            uint256 denominator = (reserveIn * 1000) + amountInWithFee;
+            amountOut = numerator / denominator;
+        }
+    }
+
+    /**
+     * @dev Performs a swap on Uniswap V2 fork DEX
+     * @param tokenIn Address of the input token
+     * @param tokenOut Address of the output token
+     * @param amountIn Amount of input tokens
+     */
+    function swapOnDEX(uint256 dexIndex, address tokenIn, address tokenOut, uint256 amountIn) internal {
+        address routerAddress = dexRouters[dexIndex];
+
+        if (IERC20(tokenIn).allowance(address(this), routerAddress) < amountIn) {
+            IERC20(tokenIn).approve(routerAddress, type(uint256).max);
+        }
+
+        address[] memory path = new address[](2);
+        path[0] = tokenIn;
+        path[1] = tokenOut;
+
+        IUniswapV2Router02(routerAddress).swapExactTokensForTokens(
+            amountIn, MINIMUM_OUTPUT, path, address(this), block.timestamp + SWAP_TIMEOUT
+        );
+    }
+
+    /**
+     * @dev Performs the arbitrage between different DEXes
+     * @param tokenBorrowed Address of the borrowed token
+     * @param tokenToSwap Address of the token to swap for
+     * @param amount Amount of tokens borrowed
+     */
+    function performArbitrage(address tokenBorrowed, address tokenToSwap, uint256 amount) internal {
+        // Get prices for both directions
+        (uint256 path1Final, uint256 path2Final) = calculateBothPaths(tokenBorrowed, tokenToSwap, amount);
+
+        // Determine which path is more profitable
+        if (path1Final > path2Final) {
+            // Path 1: DEX1 -> DEX2
+            swapOnDEX(DEX_1, tokenBorrowed, tokenToSwap, amount);
+            uint256 received = IERC20(tokenToSwap).balanceOf(address(this));
+            swapOnDEX(DEX_2, tokenToSwap, tokenBorrowed, received);
+        } else {
+            // Path 2: DEX2 -> DEX1
+            swapOnDEX(DEX_2, tokenBorrowed, tokenToSwap, amount);
+            uint256 received = IERC20(tokenToSwap).balanceOf(address(this));
+            swapOnDEX(DEX_1, tokenToSwap, tokenBorrowed, received);
+        }
+    }
+
+    /**
+     * @dev Calculate outcomes for both arbitrage paths
+     * @param tokenToBorrow Address of the token to borrow
+     * @param tokenToSwap Address of the token to swap for
+     * @param amount Amount of tokens to borrow
+     * @return path1Final Final amount for DEX1->DEX2 path
+     * @return path2Final Final amount for DEX2->DEX1 path
+     */
+    function calculateBothPaths(
+        address tokenToBorrow,
+        address tokenToSwap,
+        uint256 amount
+    )
+        internal
+        view
+        returns (uint256 path1Final, uint256 path2Final)
+    {
+        // Calculate path 1: DEX1 -> DEX2
+        uint256 path1Out = getDEXPrice(DEX_1, tokenToBorrow, tokenToSwap, amount);
+        path1Final = getDEXPrice(DEX_2, tokenToSwap, tokenToBorrow, path1Out);
+
+        // Calculate path 2: DEX2 -> DEX1
+        uint256 path2Out = getDEXPrice(DEX_2, tokenToBorrow, tokenToSwap, amount);
+        path2Final = getDEXPrice(DEX_1, tokenToSwap, tokenToBorrow, path2Out);
     }
 }
