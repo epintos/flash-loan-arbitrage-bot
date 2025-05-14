@@ -14,10 +14,9 @@ import { IUniswapV2Pair } from "@uniswap/v2-core/contracts/interfaces/IUniswapV2
 contract FlashLoanArbitrage is IFlashLoanRecipient, Ownable {
     error FlashLoanArbitrage__NotBalancerVault();
     error FlashLoanArbitrage__NotEnoughToRepayFlashLoan();
-    error FlashLoanArbitrage__InvalidAmountOfRoutersAndFactories();
 
     // Address of the Balancer Vault for flash loans
-    address public immutable balancerVault;
+    address private immutable balancerVault;
 
     // Router addresses for different Uniswap V2 Fork DEXes
     address[2] public dexRouters;
@@ -25,19 +24,17 @@ contract FlashLoanArbitrage is IFlashLoanRecipient, Ownable {
     // Pair addresses for different Uniswap V2 Fork DEXes
     address[2] public dexPairs;
 
-    uint256 public SWAP_TIMEOUT = 5 minutes;
-    uint256 public BALANCER_FEE = 0;
+    uint128 public SWAP_TIMEOUT = 5 minutes;
+    uint128 private BALANCER_FEE = 0;
 
-    uint256 public constant DEX_1 = 0;
-    uint256 public constant DEX_2 = 1;
+    uint256 private constant DEX_1 = 0;
 
-    uint256 public constant MINIMUM_OUTPUT = 1;
+    uint256 private constant DEX_2 = 1;
+
+    uint256 private constant MINIMUM_OUTPUT = 1;
 
     constructor(address _balancerVault, address[] memory _dexRouters, address[] memory _dexPairs) Ownable(msg.sender) {
         balancerVault = _balancerVault;
-        if (_dexRouters.length != _dexPairs.length && _dexRouters.length != 2) {
-            revert FlashLoanArbitrage__InvalidAmountOfRoutersAndFactories();
-        }
         dexRouters[0] = _dexRouters[0];
         dexRouters[1] = _dexRouters[1];
         dexPairs[0] = _dexPairs[0];
@@ -95,7 +92,10 @@ contract FlashLoanArbitrage is IFlashLoanRecipient, Ownable {
         (address tokenToSwap) = abi.decode(userData, (address));
 
         // Calculate the amount to be repaid (amount + fee)
-        uint256 amountToRepay = amounts[0] + feeAmounts[0];
+        uint256 amountToRepay;
+        unchecked {
+            amountToRepay = amounts[0] + feeAmounts[0];
+        }
 
         // Perform arbitrage between DEXes
         performArbitrage(address(tokens[0]), tokenToSwap, amounts[0]);
@@ -133,24 +133,19 @@ contract FlashLoanArbitrage is IFlashLoanRecipient, Ownable {
         // Gets Liquidity pool reserves
         (uint256 reserve0, uint256 reserve1,) = pair.getReserves();
 
-        uint256 reserveIn;
-        uint256 reserveOut;
-
         // Reserves are ordered by token address
         // This means that the token with the lower address is reserve0
-        if (tokenIn < tokenOut) {
-            reserveIn = reserve0;
-            reserveOut = reserve1;
-        } else {
-            reserveIn = reserve1;
-            reserveOut = reserve0;
-        }
+        (uint256 reserveIn, uint256 reserveOut) = tokenIn < tokenOut ? (reserve0, reserve1) : (reserve1, reserve0);
 
         // Calculate the price using the constant product formula
         // 0.3% fee: https://docs.uniswap.org/contracts/v2/concepts/advanced-topics/fees
         // Proudct formula: x * y = k => (tokenAReserve + amountIn * 0.997) * (tokenB - amountOut) = k
         // https://docs.uniswap.org/contracts/v2/concepts/protocol-overview/glossary#constant-product-formula
-        amountOut = (amountIn * 997 * reserveOut) / ((reserveIn * 1000) + (amountIn * 997));
+        unchecked {
+            uint256 numerator = amountIn * 997 * reserveOut;
+            uint256 denominator = (reserveIn * 1000) + (amountIn * 997);
+            amountOut = numerator / denominator;
+        }
     }
 
     /**
@@ -227,12 +222,18 @@ contract FlashLoanArbitrage is IFlashLoanRecipient, Ownable {
         uint256 path2Final = getDEXPrice(DEX_1, tokenToSwap, tokenToBorrow, path2Out);
 
         uint256 bestFinal = path1Final > path2Final ? path1Final : path2Final;
-        uint256 flashLoanFee = amount * BALANCER_FEE / 1000;
 
-        if (bestFinal > amount + flashLoanFee) {
-            profitability = int256(bestFinal - amount - flashLoanFee);
-        } else {
-            profitability = -int256(amount + flashLoanFee - bestFinal);
+        uint256 flashLoanFee;
+        unchecked {
+            flashLoanFee = (amount * BALANCER_FEE) / 1000;
+        }
+
+        unchecked {
+            if (bestFinal > amount + flashLoanFee) {
+                profitability = int256(bestFinal - amount - flashLoanFee);
+            } else {
+                profitability = -int256(amount + flashLoanFee - bestFinal);
+            }
         }
     }
 
@@ -249,7 +250,7 @@ contract FlashLoanArbitrage is IFlashLoanRecipient, Ownable {
         IERC20(token).transfer(msg.sender, amountWithdrawn);
     }
 
-    function updateBalancerFeeRate(uint256 _newFeeRate) external onlyOwner {
+    function updateBalancerFeeRate(uint128 _newFeeRate) external onlyOwner {
         BALANCER_FEE = _newFeeRate;
     }
 
@@ -257,7 +258,7 @@ contract FlashLoanArbitrage is IFlashLoanRecipient, Ownable {
      * @notice Updates the SWAP_TIMEOUT value
      * @param _newTimeout New timeout value
      */
-    function updateSwapTimeout(uint256 _newTimeout) external onlyOwner {
+    function updateSwapTimeout(uint128 _newTimeout) external onlyOwner {
         SWAP_TIMEOUT = _newTimeout;
     }
 
@@ -266,10 +267,7 @@ contract FlashLoanArbitrage is IFlashLoanRecipient, Ownable {
      * @param _dexRouters Array of DEX router addresses
      * @param _dexPairs Array of DEX factory addresses
      */
-    function updateDEXes(address[] memory _dexRouters, address[] memory _dexPairs) external onlyOwner {
-        if (_dexRouters.length != 2 || _dexPairs.length != 2) {
-            revert FlashLoanArbitrage__InvalidAmountOfRoutersAndFactories();
-        }
+    function updateDEXes(address[2] calldata _dexRouters, address[2] calldata _dexPairs) external onlyOwner {
         dexRouters[0] = _dexRouters[0];
         dexRouters[1] = _dexRouters[1];
         dexPairs[0] = _dexPairs[0];

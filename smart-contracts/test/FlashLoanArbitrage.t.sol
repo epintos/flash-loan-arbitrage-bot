@@ -102,7 +102,7 @@ contract FlashLoanArbitrageTest is Test {
 
     // updateSwapTimeout
     function test_updateSwapTimeout() public {
-        uint256 newTime = 2 minutes;
+        uint128 newTime = 2 minutes;
         vm.expectRevert(abi.encodeWithSignature("OwnableUnauthorizedAccount(address)", address(this)));
         arbitrageContract.updateSwapTimeout(newTime);
 
@@ -113,22 +113,11 @@ contract FlashLoanArbitrageTest is Test {
 
     // updateDEXes
     function test_updateDEXes() public {
-        address[] memory newDexRouters = new address[](2);
-        newDexRouters[0] = makeAddr("Router1");
-        newDexRouters[1] = makeAddr("Router2");
-        address[] memory newdexPairs = new address[](2);
-        newdexPairs[0] = makeAddr("Factory1");
-        newdexPairs[1] = makeAddr("Factory2");
+        address[2] memory newDexRouters = [makeAddr("Router1"), makeAddr("Router2")];
+        address[2] memory newdexPairs = [makeAddr("Factory1"), makeAddr("Factory2")];
 
         vm.expectRevert(abi.encodeWithSignature("OwnableUnauthorizedAccount(address)", address(this)));
         arbitrageContract.updateDEXes(newDexRouters, newdexPairs);
-
-        address[] memory newdexPairsInvalid = new address[](1);
-        newdexPairsInvalid[0] = makeAddr("Factory1");
-
-        vm.prank(OWNER);
-        vm.expectRevert(FlashLoanArbitrage.FlashLoanArbitrage__InvalidAmountOfRoutersAndFactories.selector);
-        arbitrageContract.updateDEXes(newDexRouters, newdexPairsInvalid);
 
         vm.prank(OWNER);
         arbitrageContract.updateDEXes(newDexRouters, newdexPairs);
