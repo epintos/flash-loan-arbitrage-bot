@@ -63,13 +63,14 @@ contract FlashLoanArbitrageTest is Test {
         IUniswapV2Pair(pairSushi).sync();
 
         vm.prank(OWNER);
-        int256 profitability = arbitrageContract.checkArbitrageProfitability(tokenToBorrow, tokenToSwap, amount);
+        (int256 profitability, uint8 bestPath) =
+            arbitrageContract.checkArbitrageProfitability(tokenToBorrow, tokenToSwap, amount);
         assertGt(profitability, 0);
 
         uint256 initialBalance = IERC20(tokenToBorrow).balanceOf(address(arbitrageContract));
 
         vm.prank(OWNER);
-        arbitrageContract.executeArbitrage(tokenToBorrow, amount, tokenToSwap);
+        arbitrageContract.executeArbitrage(tokenToBorrow, amount, tokenToSwap, bestPath);
         uint256 finalBalance = IERC20(tokenToBorrow).balanceOf(address(arbitrageContract));
         assertGt(finalBalance, initialBalance);
     }
@@ -79,7 +80,7 @@ contract FlashLoanArbitrageTest is Test {
         amount = bound(amount, 0.01 ether, MAX_TO_BORROW);
 
         vm.prank(OWNER);
-        int256 profitability = arbitrageContract.checkArbitrageProfitability(tokenToBorrow, tokenToSwap, amount);
+        (int256 profitability,) = arbitrageContract.checkArbitrageProfitability(tokenToBorrow, tokenToSwap, amount);
         assertLt(profitability, 0);
     }
 

@@ -50,6 +50,7 @@ interface Profitability {
   isProfitable: boolean,
   profit: ethers.BigNumber,
   profitUSD: number;
+  bestPath: ethers.BigNumber
 }
 
 const cache: { [key: string]: TokenCache } = {}; // USD Price cache storage
@@ -157,32 +158,34 @@ export const getFlashLoanFeeRate = async (): Promise<number | null> => {
 
 export const checkArbitrageProfitability = async (tokenPair: TokenPair): Promise<Profitability> => {
   try {
-    const profit: ethers.BigNumber = await arbitrageContract.checkArbitrageProfitability(
+    const returnedValues: [ethers.BigNumber, ethers.BigNumber] = await arbitrageContract.checkArbitrageProfitability(
       tokenPair.tokenBorrow.address,
       tokenPair.tokenToSwap.address,
       tokenPair.amountToBorrow
     );
-
+    const profit: ethers.BigNumber = returnedValues[0];
+    const bestPath: ethers.BigNumber = returnedValues[1];
     if (profit.gt(0)) {
       const profitUSD: number = await convertToUSD(tokenPair.tokenBorrow.address, profit, tokenPair.tokenBorrow.decimals);
       if (profitUSD >= config.minProfitUSD) {
-        return { isProfitable: true, profit, profitUSD };
+        return { isProfitable: true, profit, profitUSD, bestPath };
       }
     }
 
-    return { isProfitable: false, profit, profitUSD: 0 };
+    return { isProfitable: false, profit, profitUSD: 0, bestPath };
   } catch (err: any) {
     throw new Error(`Profit check error: ${err.message}`);
   }
 };
 
-export const executeArbitrage = async (tokenPair: TokenPair) => {
+export const executeArbitrage = async (tokenPair: TokenPair, bestPath: ethers.BigNumber) => {
   try {
     console.log(`Executing arbitrage: ${tokenPair.tokenBorrow.symbol} -> ${tokenPair.tokenToSwap.symbol}`);
     const gasEstimate = await arbitrageContract.estimateGas.executeArbitrage(
       tokenPair.tokenBorrow.address,
       tokenPair.tokenToSwap.address,
-      tokenPair.amountToBorrow
+      tokenPair.amountToBorrow,
+      bestPath
     );
 
     const gasLimit = gasEstimate.mul(120).div(100); // Adds 20%
@@ -192,6 +195,7 @@ export const executeArbitrage = async (tokenPair: TokenPair) => {
       tokenPair.tokenBorrow.address,
       tokenPair.tokenToSwap.address,
       tokenPair.amountToBorrow,
+      bestPath,
       {
         gasLimit,
         maxFeePerGas: feeData.maxPriorityFeePerGas || config.maxFeePerGas,
@@ -230,11 +234,11 @@ const monitorArbitrageOpportunities = async (): Promise<void> => {
   setInterval(async () => {
     console.log('Checking for opportunities...');
     for (const tokenPair of config.tokenPairs) {
-      const { isProfitable, profitUSD } = await checkArbitrageProfitability(tokenPair);
+      const { isProfitable, profitUSD, bestPath } = await checkArbitrageProfitability(tokenPair);
 
       if (isProfitable) {
         console.log(`Profitable: ${tokenPair.tokenBorrow.symbol}-${tokenPair.tokenToSwap.symbol}: $${profitUSD.toFixed(2)}`);
-        const result = await executeArbitrage(tokenPair);
+        const result = await executeArbitrage(tokenPair, bestPath);
 
         if (result.success) {
           console.log(`Executed! Tx: ${result.txHash}`);

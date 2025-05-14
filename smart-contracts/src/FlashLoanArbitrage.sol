@@ -48,10 +48,19 @@ contract FlashLoanArbitrage is IFlashLoanRecipient, Ownable {
      * @param tokenToBorrow Address of the token to borrow in the flash loan
      * @param amount Amount of tokens to borrow
      * @param tokenToSwap Address of the token to swap for
+     * @param dexPath The path to use (0 for DEX1->DEX2, 1 for DEX2->DEX1)
      */
-    function executeArbitrage(address tokenToBorrow, uint256 amount, address tokenToSwap) external onlyOwner {
+    function executeArbitrage(
+        address tokenToBorrow,
+        uint256 amount,
+        address tokenToSwap,
+        uint8 dexPath
+    )
+        external
+        onlyOwner
+    {
         // Prepare data to be passed to receiveFlashLoan
-        bytes memory userData = abi.encode(tokenToSwap);
+        bytes memory userData = abi.encode(tokenToSwap, dexPath);
 
         // Setup tokens and amounts for flash loan
         IERC20[] memory tokens = new IERC20[](1);
@@ -91,7 +100,7 @@ contract FlashLoanArbitrage is IFlashLoanRecipient, Ownable {
         }
 
         // Decode parameters
-        (address tokenToSwap) = abi.decode(userData, (address));
+        (address tokenToSwap, uint8 dexPath) = abi.decode(userData, (address, uint8));
 
         // Calculate the amount to be repaid (amount + fee)
         uint256 amountToRepay;
@@ -100,7 +109,7 @@ contract FlashLoanArbitrage is IFlashLoanRecipient, Ownable {
         }
 
         // Perform arbitrage between DEXes
-        performArbitrage(address(tokens[0]), tokenToSwap, amounts[0]);
+        performArbitrage(address(tokens[0]), tokenToSwap, amounts[0], dexPath);
 
         // Make sure we have enough to repay the loan plus fee
         uint256 balance = tokens[0].balanceOf(address(this));
@@ -110,41 +119,6 @@ contract FlashLoanArbitrage is IFlashLoanRecipient, Ownable {
         }
 
         tokens[0].transfer(balancerVault, amountToRepay);
-    }
-
-    /**
-     * @dev Function to check potential profit including flash loan fees
-     * @param tokenToBorrow Address of the token to borrow
-     * @param tokenToSwap Address of the token to swap for
-     * @param amount Amount of tokens to borrow
-     * @return profitability profit amount
-     */
-    function checkArbitrageProfitability(
-        address tokenToBorrow,
-        address tokenToSwap,
-        uint256 amount
-    )
-        external
-        view
-        onlyOwner
-        returns (int256 profitability)
-    {
-        (uint256 path1Final, uint256 path2Final) = calculateBothPaths(tokenToBorrow, tokenToSwap, amount);
-
-        uint256 bestFinal = path1Final > path2Final ? path1Final : path2Final;
-
-        uint256 flashLoanFee;
-        unchecked {
-            flashLoanFee = (amount * BALANCER_FEE) / 1000;
-        }
-
-        unchecked {
-            if (bestFinal > amount + flashLoanFee) {
-                profitability = int256(bestFinal - amount - flashLoanFee);
-            } else {
-                profitability = -int256(amount + flashLoanFee - bestFinal);
-            }
-        }
     }
 
     /**
@@ -250,13 +224,10 @@ contract FlashLoanArbitrage is IFlashLoanRecipient, Ownable {
      * @param tokenBorrowed Address of the borrowed token
      * @param tokenToSwap Address of the token to swap for
      * @param amount Amount of tokens borrowed
+     * @param dexPath The path to use (0 for DEX1->DEX2, 1 for DEX2->DEX1)
      */
-    function performArbitrage(address tokenBorrowed, address tokenToSwap, uint256 amount) internal {
-        // Get prices for both directions
-        (uint256 path1Final, uint256 path2Final) = calculateBothPaths(tokenBorrowed, tokenToSwap, amount);
-
-        // Determine which path is more profitable
-        if (path1Final > path2Final) {
+    function performArbitrage(address tokenBorrowed, address tokenToSwap, uint256 amount, uint8 dexPath) internal {
+        if (dexPath == 0) {
             // Path 1: DEX1 -> DEX2
             swapOnDEX(DEX_1, tokenBorrowed, tokenToSwap, amount);
             uint256 received = IERC20(tokenToSwap).balanceOf(address(this));
@@ -293,5 +264,48 @@ contract FlashLoanArbitrage is IFlashLoanRecipient, Ownable {
         // Calculate path 2: DEX2 -> DEX1
         uint256 path2Out = getDEXPrice(DEX_2, tokenToBorrow, tokenToSwap, amount);
         path2Final = getDEXPrice(DEX_1, tokenToSwap, tokenToBorrow, path2Out);
+    }
+
+    /**
+     * @dev Function to check potential profit including flash loan fees
+     * @param tokenToBorrow Address of the token to borrow
+     * @param tokenToSwap Address of the token to swap for
+     * @param amount Amount of tokens to borrow
+     * @return profitability profit amount
+     * @return bestPath 0 for DEX1->DEX2 path, 1 for DEX2->DEX1 path
+     */
+    function checkArbitrageProfitability(
+        address tokenToBorrow,
+        address tokenToSwap,
+        uint256 amount
+    )
+        external
+        view
+        onlyOwner
+        returns (int256 profitability, uint8 bestPath)
+    {
+        (uint256 path1Final, uint256 path2Final) = calculateBothPaths(tokenToBorrow, tokenToSwap, amount);
+
+        // Determine best final amount
+        uint256 bestFinal;
+        unchecked {
+            if (path1Final > path2Final) {
+                bestFinal = path1Final;
+                bestPath = 0; // DEX1->DEX2 path
+            } else {
+                bestFinal = path2Final;
+                bestPath = 1; // DEX2->DEX1 path
+            }
+
+            // Calculate flash loan fee
+            uint256 flashLoanFee = amount * uint256(BALANCER_FEE) / 1000;
+
+            // Calculate profitability
+            if (bestFinal > amount + flashLoanFee) {
+                profitability = int256(bestFinal - amount - flashLoanFee);
+            } else {
+                profitability = -int256(amount + flashLoanFee - bestFinal);
+            }
+        }
     }
 }
