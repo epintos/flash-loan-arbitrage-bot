@@ -1,0 +1,28 @@
+# Node.js related
+node_modules/
+npm-debug.log
+.pnpm-debug.log
+
+# TypeScript related
+dist/
+build/
+*.tsbuildinfo
+
+# Environment variables
+.env
+
+# IDE related
+.vscode/
+.DS_Store
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# Misc
+.cache/
+.temp/
+
+abis/**/*
