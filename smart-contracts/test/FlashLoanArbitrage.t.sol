@@ -2,13 +2,13 @@
 
 pragma solidity ^0.8.29;
 
-import { Test, console } from "forge-std/Test.sol";
+import { Test } from "forge-std/Test.sol";
 import { FlashLoanArbitrage } from "src/FlashLoanArbitrage.sol";
 import { Deploy } from "script/Deploy.s.sol";
 import { HelperConfig } from "script/HelperConfig.s.sol";
 import { IERC20 } from "@openzeppelin/contracts/interfaces/IERC20.sol";
-import { IUniswapV2Factory } from "@uniswap/v2-core/contracts/interfaces/IUniswapV2Factory.sol";
 import { IUniswapV2Pair } from "@uniswap/v2-core/contracts/interfaces/IUniswapV2Pair.sol";
+import { Utils } from "script/Utils.s.sol";
 
 contract FlashLoanArbitrageTest is Test {
     FlashLoanArbitrage arbitrageContract;
@@ -29,21 +29,15 @@ contract FlashLoanArbitrageTest is Test {
         tokenToSwap = config.tokenToSwap;
     }
 
-    // Helper fuction
-    function _sortTokens(address tokenA, address tokenB) private pure returns (address token0, address token1) {
-        require(tokenA != tokenB, "Identical addresses");
-        (token0, token1) = tokenA < tokenB ? (tokenA, tokenB) : (tokenB, tokenA);
-    }
-
     // executeArbitrage
     function test_executeArbitrage(uint256 amount) external {
         amount = bound(amount, 0.01 ether, MAX_TO_BORROW);
 
         // Modify reserves to be able to test a profiteable arbitrage
-        (address token0, address token1) = _sortTokens(tokenToBorrow, tokenToSwap);
+        (address token0, address token1) = Utils.sortTokens(tokenToBorrow, tokenToSwap);
 
-        address pairUni = IUniswapV2Factory(config.dexFactories[0]).getPair(tokenToBorrow, tokenToSwap);
-        address pairSushi = IUniswapV2Factory(config.dexFactories[1]).getPair(tokenToBorrow, tokenToSwap);
+        address pairUni = config.dexPairs[0];
+        address pairSushi = config.dexPairs[1];
 
         // Uniswap: cheaper
         if (token0 == tokenToBorrow) {
@@ -122,25 +116,25 @@ contract FlashLoanArbitrageTest is Test {
         address[] memory newDexRouters = new address[](2);
         newDexRouters[0] = makeAddr("Router1");
         newDexRouters[1] = makeAddr("Router2");
-        address[] memory newDexFactories = new address[](2);
-        newDexFactories[0] = makeAddr("Factory1");
-        newDexFactories[1] = makeAddr("Factory2");
+        address[] memory newdexPairs = new address[](2);
+        newdexPairs[0] = makeAddr("Factory1");
+        newdexPairs[1] = makeAddr("Factory2");
 
         vm.expectRevert(abi.encodeWithSignature("OwnableUnauthorizedAccount(address)", address(this)));
-        arbitrageContract.updateDEXes(newDexRouters, newDexFactories);
+        arbitrageContract.updateDEXes(newDexRouters, newdexPairs);
 
-        address[] memory newDexFactoriesInvalid = new address[](1);
-        newDexFactoriesInvalid[0] = makeAddr("Factory1");
+        address[] memory newdexPairsInvalid = new address[](1);
+        newdexPairsInvalid[0] = makeAddr("Factory1");
 
         vm.prank(OWNER);
         vm.expectRevert(FlashLoanArbitrage.FlashLoanArbitrage__InvalidAmountOfRoutersAndFactories.selector);
-        arbitrageContract.updateDEXes(newDexRouters, newDexFactoriesInvalid);
+        arbitrageContract.updateDEXes(newDexRouters, newdexPairsInvalid);
 
         vm.prank(OWNER);
-        arbitrageContract.updateDEXes(newDexRouters, newDexFactories);
+        arbitrageContract.updateDEXes(newDexRouters, newdexPairs);
         assertEq(arbitrageContract.dexRouters(0), newDexRouters[0]);
         assertEq(arbitrageContract.dexRouters(1), newDexRouters[1]);
-        assertEq(arbitrageContract.dexFactories(0), newDexFactories[0]);
-        assertEq(arbitrageContract.dexFactories(1), newDexFactories[1]);
+        assertEq(arbitrageContract.dexPairs(0), newdexPairs[0]);
+        assertEq(arbitrageContract.dexPairs(1), newdexPairs[1]);
     }
 }

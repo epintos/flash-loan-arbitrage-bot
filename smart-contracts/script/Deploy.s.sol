@@ -14,14 +14,14 @@ contract Deploy is Script {
         address balanceVault = config.balancerVault;
 
         address[] memory dexRouters = new address[](2);
-        address[] memory dexFactories = new address[](2);
+        address[] memory dexPairs = new address[](2);
 
         for (uint256 i = 0; i < 2; i++) {
             dexRouters[i] = config.dexRouters[i];
-            dexFactories[i] = config.dexFactories[i];
+            dexPairs[i] = config.dexPairs[i];
         }
 
-        FlashLoanArbitrage arbitrageContract = new FlashLoanArbitrage(balanceVault, dexRouters, dexFactories);
+        FlashLoanArbitrage arbitrageContract = new FlashLoanArbitrage(balanceVault, dexRouters, dexPairs);
         vm.stopBroadcast();
 
         return (arbitrageContract, helperConfig);

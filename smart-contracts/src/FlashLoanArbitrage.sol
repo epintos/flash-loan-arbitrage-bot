@@ -17,13 +17,13 @@ contract FlashLoanArbitrage is IFlashLoanRecipient, Ownable {
     error FlashLoanArbitrage__InvalidAmountOfRoutersAndFactories();
 
     // Address of the Balancer Vault for flash loans
-    address public balancerVault;
+    address public immutable balancerVault;
 
     // Router addresses for different Uniswap V2 Fork DEXes
-    address[] public dexRouters;
+    address[2] public dexRouters;
 
-    // Factory addresses for different Uniswap V2 Fork DEXes
-    address[] public dexFactories;
+    // Pair addresses for different Uniswap V2 Fork DEXes
+    address[2] public dexPairs;
 
     uint256 public SWAP_TIMEOUT = 5 minutes;
     uint256 public BALANCER_FEE = 0;
@@ -31,19 +31,17 @@ contract FlashLoanArbitrage is IFlashLoanRecipient, Ownable {
     uint256 public constant DEX_1 = 0;
     uint256 public constant DEX_2 = 1;
 
-    constructor(
-        address _balancerVault,
-        address[] memory _dexRouters,
-        address[] memory _dexFactories
-    )
-        Ownable(msg.sender)
-    {
+    uint256 public constant MINIMUM_OUTPUT = 1;
+
+    constructor(address _balancerVault, address[] memory _dexRouters, address[] memory _dexPairs) Ownable(msg.sender) {
         balancerVault = _balancerVault;
-        if (_dexRouters.length != _dexFactories.length && _dexRouters.length != 2) {
+        if (_dexRouters.length != _dexPairs.length && _dexRouters.length != 2) {
             revert FlashLoanArbitrage__InvalidAmountOfRoutersAndFactories();
         }
-        dexRouters = _dexRouters;
-        dexFactories = _dexFactories;
+        dexRouters[0] = _dexRouters[0];
+        dexRouters[1] = _dexRouters[1];
+        dexPairs[0] = _dexPairs[0];
+        dexPairs[1] = _dexPairs[1];
     }
 
     /**
@@ -62,8 +60,6 @@ contract FlashLoanArbitrage is IFlashLoanRecipient, Ownable {
 
         uint256[] memory amounts = new uint256[](1);
         amounts[0] = amount;
-
-        IVault(balancerVault).getAuthorizer();
 
         // Execute the flash loan
         IVault(balancerVault).flashLoan(
@@ -132,13 +128,7 @@ contract FlashLoanArbitrage is IFlashLoanRecipient, Ownable {
         view
         returns (uint256 amountOut)
     {
-        IUniswapV2Factory factory = IUniswapV2Factory(dexFactories[dexIndex]);
-        IUniswapV2Pair pair = IUniswapV2Pair(factory.getPair(tokenIn, tokenOut));
-
-        // Liquidity pool does not exist
-        if (address(pair) == address(0)) {
-            return 0;
-        }
+        IUniswapV2Pair pair = IUniswapV2Pair(dexPairs[dexIndex]);
 
         // Gets Liquidity pool reserves
         (uint256 reserve0, uint256 reserve1,) = pair.getReserves();
@@ -170,18 +160,18 @@ contract FlashLoanArbitrage is IFlashLoanRecipient, Ownable {
      * @param amountIn Amount of input tokens
      */
     function swapOnDEX(uint256 dexIndex, address tokenIn, address tokenOut, uint256 amountIn) internal {
-        require(amountIn > 0, "Zero input amount");
         address routerAddress = dexRouters[dexIndex];
 
-        IERC20(tokenIn).approve(routerAddress, amountIn);
+        if (IERC20(tokenIn).allowance(address(this), routerAddress) < amountIn) {
+            IERC20(tokenIn).approve(routerAddress, type(uint256).max);
+        }
 
         address[] memory path = new address[](2);
         path[0] = tokenIn;
         path[1] = tokenOut;
 
-        uint256 minOut = 1; // Minimum of 1 wei to prevent complete slippage
         IUniswapV2Router02(routerAddress).swapExactTokensForTokens(
-            amountIn, minOut, path, address(this), block.timestamp + SWAP_TIMEOUT
+            amountIn, MINIMUM_OUTPUT, path, address(this), block.timestamp + SWAP_TIMEOUT
         );
     }
 
@@ -274,13 +264,15 @@ contract FlashLoanArbitrage is IFlashLoanRecipient, Ownable {
     /**
      * @notice Updates the DEXes routers and factoreies
      * @param _dexRouters Array of DEX router addresses
-     * @param _dexFactories Array of DEX factory addresses
+     * @param _dexPairs Array of DEX factory addresses
      */
-    function updateDEXes(address[] memory _dexRouters, address[] memory _dexFactories) external onlyOwner {
-        if (_dexRouters.length != 2 || _dexFactories.length != 2) {
+    function updateDEXes(address[] memory _dexRouters, address[] memory _dexPairs) external onlyOwner {
+        if (_dexRouters.length != 2 || _dexPairs.length != 2) {
             revert FlashLoanArbitrage__InvalidAmountOfRoutersAndFactories();
         }
-        dexRouters = _dexRouters;
-        dexFactories = _dexFactories;
+        dexRouters[0] = _dexRouters[0];
+        dexRouters[1] = _dexRouters[1];
+        dexPairs[0] = _dexPairs[0];
+        dexPairs[1] = _dexPairs[1];
     }
 }
