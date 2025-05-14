@@ -4,7 +4,7 @@
 
 build :; forge build
 
-test :; forge test
+test :; @forge test --fork-url $(MAINNET_RPC_URL)
 
 install :
 	forge install foundry-rs/forge-std@v1.9.7 --no-git && \
@@ -12,4 +12,5 @@ install :
 	forge install balancer-labs/balancer-v2-monorepo --no-git && \
 	forge install Uniswap/v2-core --no-git && \
 	forge install Uniswap/v2-periphery --no-git
+
 
