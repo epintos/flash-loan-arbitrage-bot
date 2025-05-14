@@ -10,29 +10,6 @@ import { IERC20 } from "@openzeppelin/contracts/interfaces/IERC20.sol";
 import { IUniswapV2Factory } from "@uniswap/v2-core/contracts/interfaces/IUniswapV2Factory.sol";
 import { IUniswapV2Pair } from "@uniswap/v2-core/contracts/interfaces/IUniswapV2Pair.sol";
 
-// contract FlashLoanArbitragePublic is FlashLoanArbitrage {
-//     constructor(
-//         address _balancerVault,
-//         address[] memory _dexRouters,
-//         address[] memory _dexFactories
-//     )
-//         FlashLoanArbitrage(_balancerVault, _dexRouters, _dexFactories)
-//     { }
-
-//     function getDEXPricePublic(
-//         uint256 dexIndex,
-//         address tokenIn,
-//         address tokenOut,
-//         uint256 amountIn
-//     )
-//         internal
-//         view
-//         returns (uint256 amountOut)
-//     {
-//         return super.getDEXPrice(dexIndex, tokenIn, tokenOut, amountIn);
-//     }
-// }
-
 contract FlashLoanArbitrageTest is Test {
     FlashLoanArbitrage arbitrageContract;
     HelperConfig helperConfig;
@@ -101,5 +78,69 @@ contract FlashLoanArbitrageTest is Test {
         arbitrageContract.executeArbitrage(tokenToBorrow, amount, tokenToSwap);
         uint256 finalBalance = IERC20(tokenToBorrow).balanceOf(address(arbitrageContract));
         assertGt(finalBalance, initialBalance);
+    }
+
+    // checkArbitrageProfitability
+    function test_checkArbitrageProfitability_Negative(uint256 amount) external {
+        amount = bound(amount, 0.01 ether, MAX_TO_BORROW);
+
+        vm.prank(OWNER);
+        int256 profitability = arbitrageContract.checkArbitrageProfitability(tokenToBorrow, tokenToSwap, amount);
+        assertLt(profitability, 0);
+    }
+
+    // Withdraw
+    function test_withdraw() public {
+        deal(tokenToBorrow, address(arbitrageContract), MAX_TO_BORROW);
+
+        vm.expectRevert(abi.encodeWithSignature("OwnableUnauthorizedAccount(address)", address(this)));
+        arbitrageContract.withdraw(tokenToBorrow, 1 ether);
+
+        vm.prank(OWNER);
+        arbitrageContract.withdraw(tokenToBorrow, 1 ether);
+        assertEq(IERC20(tokenToBorrow).balanceOf(OWNER), 1 ether);
+
+        vm.prank(OWNER);
+        arbitrageContract.withdraw(tokenToBorrow, type(uint256).max);
+        assertEq(IERC20(tokenToBorrow).balanceOf(OWNER), MAX_TO_BORROW);
+        assertEq(IERC20(tokenToBorrow).balanceOf(address(arbitrageContract)), 0);
+    }
+
+    // updateSwapTimeout
+    function test_updateSwapTimeout() public {
+        uint256 newTime = 2 minutes;
+        vm.expectRevert(abi.encodeWithSignature("OwnableUnauthorizedAccount(address)", address(this)));
+        arbitrageContract.updateSwapTimeout(newTime);
+
+        vm.prank(OWNER);
+        arbitrageContract.updateSwapTimeout(newTime);
+        assertEq(arbitrageContract.SWAP_TIMEOUT(), newTime);
+    }
+
+    // updateDEXes
+    function test_updateDEXes() public {
+        address[] memory newDexRouters = new address[](2);
+        newDexRouters[0] = makeAddr("Router1");
+        newDexRouters[1] = makeAddr("Router2");
+        address[] memory newDexFactories = new address[](2);
+        newDexFactories[0] = makeAddr("Factory1");
+        newDexFactories[1] = makeAddr("Factory2");
+
+        vm.expectRevert(abi.encodeWithSignature("OwnableUnauthorizedAccount(address)", address(this)));
+        arbitrageContract.updateDEXes(newDexRouters, newDexFactories);
+
+        address[] memory newDexFactoriesInvalid = new address[](1);
+        newDexFactoriesInvalid[0] = makeAddr("Factory1");
+
+        vm.prank(OWNER);
+        vm.expectRevert(FlashLoanArbitrage.FlashLoanArbitrage__InvalidAmountOfRoutersAndFactories.selector);
+        arbitrageContract.updateDEXes(newDexRouters, newDexFactoriesInvalid);
+
+        vm.prank(OWNER);
+        arbitrageContract.updateDEXes(newDexRouters, newDexFactories);
+        assertEq(arbitrageContract.dexRouters(0), newDexRouters[0]);
+        assertEq(arbitrageContract.dexRouters(1), newDexRouters[1]);
+        assertEq(arbitrageContract.dexFactories(0), newDexFactories[0]);
+        assertEq(arbitrageContract.dexFactories(1), newDexFactories[1]);
     }
 }

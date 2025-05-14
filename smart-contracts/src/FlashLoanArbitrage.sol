@@ -244,10 +244,19 @@ contract FlashLoanArbitrage is IFlashLoanRecipient, Ownable {
             profitability = -int256(amount + flashLoanFee - bestFinal);
         }
     }
+
     /**
-     * @notice Updates the Balancer flash loan fee rate
-     * @param _newFeeRate New fee rate (10 = 0.1%)
+     * @notice Withdraw a token from this contract
+     * @param token IERC20 token to withdraw
+     * @param amount Amount. If amount == type(uint26).max then the whole balance is withdrawn
      */
+    function withdraw(address token, uint256 amount) external onlyOwner returns (uint256 amountWithdrawn) {
+        amountWithdrawn = amount;
+        if (amount == type(uint256).max) {
+            amountWithdrawn = IERC20(token).balanceOf(address(this));
+        }
+        IERC20(token).transfer(msg.sender, amountWithdrawn);
+    }
 
     function updateBalancerFeeRate(uint256 _newFeeRate) external onlyOwner {
         BALANCER_FEE = _newFeeRate;
@@ -267,7 +276,7 @@ contract FlashLoanArbitrage is IFlashLoanRecipient, Ownable {
      * @param _dexFactories Array of DEX factory addresses
      */
     function updateDEXes(address[] memory _dexRouters, address[] memory _dexFactories) external onlyOwner {
-        if (_dexRouters.length != _dexFactories.length && _dexRouters.length != 2) {
+        if (_dexRouters.length != 2 || _dexFactories.length != 2) {
             revert FlashLoanArbitrage__InvalidAmountOfRoutersAndFactories();
         }
         dexRouters = _dexRouters;
