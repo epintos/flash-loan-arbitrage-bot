@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 
-pragma solidity >=0.7.0 <0.9.0;
+pragma solidity ^0.8.29;
 
 import { Ownable } from "@openzeppelin/contracts/access/Ownable.sol";
 import { IVault } from "@balancer-labs/v2-interfaces/vault/IVault.sol";
@@ -227,6 +227,7 @@ contract FlashLoanArbitrage is IFlashLoanRecipient, Ownable {
     )
         external
         view
+        onlyOwner
         returns (int256 profitability)
     {
         uint256 path1Out = getDEXPrice(DEX_1, tokenToBorrow, tokenToSwap, amount);
