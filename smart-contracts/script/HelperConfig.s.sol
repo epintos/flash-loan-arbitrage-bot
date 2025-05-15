@@ -23,12 +23,15 @@ contract HelperConfig is Script {
     }
 
     uint256 public constant MAINNET_CHAIN_ID = 1;
+    uint256 public constant SEPOLIA_CHAIN_ID = 11_155_111;
 
     NetworkConfig private activeNetworkConfig;
 
     constructor() {
         if (block.chainid == MAINNET_CHAIN_ID) {
             activeNetworkConfig = getMainnetETHConfig();
+        } else if (block.chainid == SEPOLIA_CHAIN_ID) {
+            activeNetworkConfig = getSepoliaETHConfig();
         } else {
             revert HelperConfig__InvalidChainId();
         }
@@ -36,6 +39,16 @@ contract HelperConfig is Script {
 
     function getActiveNetworkConfig() public view returns (NetworkConfig memory) {
         return activeNetworkConfig;
+    }
+
+    function getSepoliaETHConfig() public pure returns (NetworkConfig memory) {
+        return NetworkConfig({
+            balancerVault: 0xBA12222222228d8Ba445958a75a0704d566BF2C8,
+            dexRouters: [0xeE567Fe1712Faf6149d80dA1E6934E354124CfE3, 0xeaBcE3E74EF41FB40024a21Cc2ee2F5dDc615791],
+            dexFactories: [0xF62c03E08ada871A0bEb309762E260a7a6a880E6, 0x734583f62Bb6ACe3c9bA9bd5A53143CA2Ce8C55A],
+            tokenToBorrow: 0x7b79995e5f793A07Bc00c21412e50Ecae098E7f9,
+            tokenToSwap: 0x779877A7B0D9E8603169DdbD7836e478b4624789
+        });
     }
 
     function getMainnetETHConfig() public pure returns (NetworkConfig memory) {
