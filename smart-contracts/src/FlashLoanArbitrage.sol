@@ -33,7 +33,7 @@ contract FlashLoanArbitrage is IFlashLoanRecipient, Ownable {
 
     uint256 private constant MINIMUM_OUTPUT = 1;
 
-    uint256 private constant SWAP_FEE = 997;
+    uint256 private SWAP_FEE = 997;
 
     constructor(
         address _balancerVault,
@@ -140,8 +140,20 @@ contract FlashLoanArbitrage is IFlashLoanRecipient, Ownable {
         IERC20(token).transfer(msg.sender, amountWithdrawn);
     }
 
-    function updateBalancerFeeRate(uint128 _newFeeRate) external onlyOwner {
-        BALANCER_FEE = _newFeeRate;
+    /**
+     * @notice Updates Balance fees
+     * @param newFeeRate new fee
+     */
+    function updateBalancerFeeRate(uint128 newFeeRate) external onlyOwner {
+        BALANCER_FEE = newFeeRate;
+    }
+
+    /**
+     * @notice Updates DEXes fee
+     * @param newSwapFee new fee
+     */
+    function updateSwapFee(uint128 newSwapFee) external onlyOwner {
+        SWAP_FEE = newSwapFee;
     }
 
     /**
@@ -214,7 +226,7 @@ contract FlashLoanArbitrage is IFlashLoanRecipient, Ownable {
         address routerAddress = dexRouters[dexIndex];
 
         if (IERC20(tokenIn).allowance(address(this), routerAddress) < amountIn) {
-            IERC20(tokenIn).approve(routerAddress, type(uint256).max);
+            IERC20(tokenIn).approve(routerAddress, amountIn);
         }
 
         address[] memory path = new address[](2);
