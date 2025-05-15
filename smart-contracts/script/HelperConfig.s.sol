@@ -1,10 +1,10 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: UNLICENSED
 
 pragma solidity ^0.8.29;
 
 import { Script } from "forge-std/Script.sol";
 import { FlashLoanArbitrage } from "src/FlashLoanArbitrage.sol";
-import { Utils } from "script/Utils.s.sol";
+import { Utils } from "script/Utils.sol";
 
 contract HelperConfig is Script {
     error HelperConfig__InvalidChainId();

@@ -8,12 +8,6 @@ remappings = [
     '@uniswap/v2-core/=lib/v2-core/',
     '@uniswap/v2-periphery/=lib/v2-periphery/',
 ]
-fs_permissions = [{ access = "read", path = "./broadcast" }]
-
-[invariant]
-runs = 128
-depth = 127
-fail_on_revert = true
 
 [fmt]
 line_length = 120

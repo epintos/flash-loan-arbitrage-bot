@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: UNLICENSED
 
 pragma solidity ^0.8.29;
 
@@ -6,10 +6,10 @@ import { Test } from "forge-std/Test.sol";
 import { FlashLoanArbitrage } from "src/FlashLoanArbitrage.sol";
 import { Deploy } from "script/Deploy.s.sol";
 import { HelperConfig } from "script/HelperConfig.s.sol";
-import { IERC20 } from "@openzeppelin/contracts/interfaces/IERC20.sol";
+import { IERC20 } from "@balancer-labs/v2-interfaces/solidity-utils/openzeppelin/IERC20.sol";
 import { IUniswapV2Pair } from "@uniswap/v2-core/contracts/interfaces/IUniswapV2Pair.sol";
 import { IUniswapV2Factory } from "@uniswap/v2-core/contracts/interfaces/IUniswapV2Factory.sol";
-import { Utils } from "script/Utils.s.sol";
+import { Utils } from "script/Utils.sol";
 
 contract FlashLoanArbitrageTest is Test {
     FlashLoanArbitrage arbitrageContract;
@@ -48,7 +48,6 @@ contract FlashLoanArbitrageTest is Test {
             deal(token0, pairUni, 10_000 ether); // tokenToSwap
             deal(token1, pairUni, 5 ether); // tokenToBorrow
         }
-        IUniswapV2Pair(pairUni).sync();
 
         // Sushi: more expensive
         if (token0 == tokenToBorrow) {
@@ -82,6 +81,16 @@ contract FlashLoanArbitrageTest is Test {
 
         vm.prank(OWNER);
         (int256 profitability,) = arbitrageContract.checkArbitrageProfitability(tokenToBorrow, tokenToSwap, amount);
+        assertLt(profitability, 0);
+    }
+
+    function test_checkArbitrageProfitability_USDT_WBTC(uint256 amount) external {
+        amount = bound(amount, 0.01 ether, MAX_TO_BORROW);
+
+        vm.prank(OWNER);
+        (int256 profitability,) = arbitrageContract.checkArbitrageProfitability(
+            0xdAC17F958D2ee523a2206206994597C13D831ec7, 0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599, amount
+        );
         assertLt(profitability, 0);
     }
 

@@ -3,7 +3,7 @@ import * as dotenv from 'dotenv';
 import { ethers } from 'ethers';
 import * as fs from 'fs';
 
-dotenv.config();
+dotenv.config({ path: '../smart-contracts/.env' });
 
 // Load ABI files
 const arbitractContractABI = JSON.parse(fs.readFileSync('./abis/FlashLoanArbitrage.json', 'utf-8'));
@@ -50,7 +50,7 @@ interface Profitability {
   isProfitable: boolean,
   profit: ethers.BigNumber,
   profitUSD: number;
-  bestPath: ethers.BigNumber
+  bestPath: number;
 }
 
 const cache: { [key: string]: TokenCache } = {}; // USD Price cache storage
@@ -58,7 +58,7 @@ const CACHE_EXPIRY_TIME = 300000; // Cache expiry time in milliseconds (e.g., 5 
 
 const WETH_ADDRESS: string = '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2';
 const LINK_ADDRESS: string = '0x514910771AF9Ca656af840dff83E8264EcF986CA';
-const USDC_ADDRESS: string = '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48';
+const USDT_ADDRESS: string = '0xdAC17F958D2ee523a2206206994597C13D831ec7';
 const WBTC_ADDRESS: string = '0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599';
 
 // Config
@@ -85,8 +85,8 @@ const config: Config = {
     },
     {
       tokenBorrow: {
-        address: USDC_ADDRESS,
-        symbol: 'USDC',
+        address: USDT_ADDRESS,
+        symbol: 'USDT',
         decimals: 6
       },
       tokenToSwap: {
@@ -158,13 +158,14 @@ export const getFlashLoanFeeRate = async (): Promise<number | null> => {
 
 export const checkArbitrageProfitability = async (tokenPair: TokenPair): Promise<Profitability> => {
   try {
-    const returnedValues: [ethers.BigNumber, ethers.BigNumber] = await arbitrageContract.checkArbitrageProfitability(
+    console.log(`Checking profitability: ${tokenPair.tokenBorrow.symbol} -> ${tokenPair.tokenToSwap.symbol}`);
+    const returnedValues: [ethers.BigNumber, number] = await arbitrageContract.checkArbitrageProfitability(
       tokenPair.tokenBorrow.address,
       tokenPair.tokenToSwap.address,
       tokenPair.amountToBorrow
     );
     const profit: ethers.BigNumber = returnedValues[0];
-    const bestPath: ethers.BigNumber = returnedValues[1];
+    const bestPath: number = returnedValues[1];
     if (profit.gt(0)) {
       const profitUSD: number = await convertToUSD(tokenPair.tokenBorrow.address, profit, tokenPair.tokenBorrow.decimals);
       if (profitUSD >= config.minProfitUSD) {
@@ -178,34 +179,42 @@ export const checkArbitrageProfitability = async (tokenPair: TokenPair): Promise
   }
 };
 
-export const executeArbitrage = async (tokenPair: TokenPair, bestPath: ethers.BigNumber) => {
+export const executeArbitrage = async (tokenPair: TokenPair, bestPath: number) => {
   try {
     console.log(`Executing arbitrage: ${tokenPair.tokenBorrow.symbol} -> ${tokenPair.tokenToSwap.symbol}`);
     const gasEstimate = await arbitrageContract.estimateGas.executeArbitrage(
       tokenPair.tokenBorrow.address,
-      tokenPair.tokenToSwap.address,
       tokenPair.amountToBorrow,
+      tokenPair.tokenToSwap.address,
       bestPath
     );
 
     const gasLimit = gasEstimate.mul(120).div(100); // Adds 20%
     const feeData = await provider.getFeeData();
 
+    let maxPriorityFeePerGas = feeData.maxPriorityFeePerGas || config.maxFeePerGas;
+    let maxFeePerGas = feeData.maxFeePerGas || config.maxPriorityFeePerGas;
+
+    // Make sure maxFeePerGas >= maxPriorityFeePerGas
+    if (maxFeePerGas.lt(maxPriorityFeePerGas)) {
+      maxFeePerGas = maxPriorityFeePerGas.add(ethers.utils.parseUnits("10", "gwei"));
+    }
+
     const tx = await arbitrageContract.executeArbitrage(
       tokenPair.tokenBorrow.address,
-      tokenPair.tokenToSwap.address,
       tokenPair.amountToBorrow,
+      tokenPair.tokenToSwap.address,
       bestPath,
       {
         gasLimit,
-        maxFeePerGas: feeData.maxPriorityFeePerGas || config.maxFeePerGas,
-        maxPriorityFeePerGas: feeData.maxFeePerGas || config.maxPriorityFeePerGas
+        maxFeePerGas: maxFeePerGas,
+        maxPriorityFeePerGas: maxPriorityFeePerGas
       }
     );
 
     console.log(`Tx submitted: ${tx.hash}`);
     const receipt = await tx.wait();
-    console.log(`Tx confirmed in block ${receipt.blockNumber}`);
+    console.log("Gas used:", receipt.gasUsed.toString());
     return { success: true, txHash: tx.hash };
   } catch (err: any) {
     console.error(`Execution error: ${err.message}`);
@@ -213,12 +222,12 @@ export const executeArbitrage = async (tokenPair: TokenPair, bestPath: ethers.Bi
   }
 };
 
-const getERC20Balance = async (token: Token): Promise<ethers.BigNumber> => {
+const getERC20Balance = async (token: Token): Promise<string> => {
   const tokenContract = new ethers.Contract(token.address, erco20ABI, provider);
 
-  const balance = await tokenContract.balanceOf(wallet);
+  const balance = await tokenContract.balanceOf(arbitrageContract.address);
 
-  const formattedBalance: ethers.BigNumber = ethers.utils.parseUnits(balance, token.decimals);
+  const formattedBalance: string = ethers.utils.formatUnits(balance, token.decimals);
   return formattedBalance;
 };
 
@@ -226,6 +235,7 @@ const getERC20Balance = async (token: Token): Promise<ethers.BigNumber> => {
 const monitorArbitrageOpportunities = async (): Promise<void> => {
   console.log('Monitoring arbitrage opportunities...');
 
+  console.log('Checking balances...');
   for (const tokenPair of config.tokenPairs) {
     const token: Token = tokenPair.tokenBorrow;
     console.log(`Balance ${token.symbol}: ${await getERC20Balance(token)}`)
@@ -242,11 +252,12 @@ const monitorArbitrageOpportunities = async (): Promise<void> => {
 
         if (result.success) {
           console.log(`Executed! Tx: ${result.txHash}`);
+          console.log(`New Balance ${tokenPair.tokenBorrow.symbol}: ${await getERC20Balance(tokenPair.tokenBorrow)}`)
         } else {
           console.error(`Execution failed: ${result.error}`);
         }
 
-        await new Promise((resolve) => setTimeout(resolve, 5000));
+        await new Promise((resolve) => setTimeout(resolve, 2000));
       } else {
         console.log(`Not profitable: ${tokenPair.tokenBorrow.symbol}-${tokenPair.tokenToSwap.symbol}`);
       }

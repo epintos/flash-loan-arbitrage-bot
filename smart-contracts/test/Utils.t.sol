@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: UNLICENSED
 
 pragma solidity ^0.8.29;
 
@@ -6,7 +6,7 @@ import { Test } from "forge-std/Test.sol";
 import { HelperConfig } from "script/HelperConfig.s.sol";
 import { IUniswapV2Factory } from "@uniswap/v2-core/contracts/interfaces/IUniswapV2Factory.sol";
 import { IUniswapV2Pair } from "@uniswap/v2-core/contracts/interfaces/IUniswapV2Pair.sol";
-import { Utils } from "script/Utils.s.sol";
+import { Utils } from "script/Utils.sol";
 
 contract UtilsTest is Test {
     HelperConfig helperConfig;
