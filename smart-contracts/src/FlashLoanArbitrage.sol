@@ -22,7 +22,7 @@ contract FlashLoanArbitrage is IFlashLoanRecipient, Ownable {
     address[2] public dexRouters;
 
     // Pair addresses for different Uniswap V2 Fork DEXes
-    address[2] public dexPairs;
+    address[2] public dexFactories;
 
     uint128 public SWAP_TIMEOUT = 5 minutes;
     uint128 private BALANCER_FEE = 0;
@@ -35,12 +35,18 @@ contract FlashLoanArbitrage is IFlashLoanRecipient, Ownable {
 
     uint256 private constant SWAP_FEE = 997;
 
-    constructor(address _balancerVault, address[] memory _dexRouters, address[] memory _dexPairs) Ownable(msg.sender) {
+    constructor(
+        address _balancerVault,
+        address[] memory _dexRouters,
+        address[] memory _dexFactories
+    )
+        Ownable(msg.sender)
+    {
         balancerVault = _balancerVault;
         dexRouters[0] = _dexRouters[0];
         dexRouters[1] = _dexRouters[1];
-        dexPairs[0] = _dexPairs[0];
-        dexPairs[1] = _dexPairs[1];
+        dexFactories[0] = _dexFactories[0];
+        dexFactories[1] = _dexFactories[1];
     }
 
     /**
@@ -149,13 +155,13 @@ contract FlashLoanArbitrage is IFlashLoanRecipient, Ownable {
     /**
      * @notice Updates the DEXes routers and factoreies
      * @param _dexRouters Array of DEX router addresses
-     * @param _dexPairs Array of DEX factory addresses
+     * @param _dexFactories Array of DEX factory addresses
      */
-    function updateDEXes(address[2] calldata _dexRouters, address[2] calldata _dexPairs) external onlyOwner {
+    function updateDEXes(address[2] calldata _dexRouters, address[2] calldata _dexFactories) external onlyOwner {
         dexRouters[0] = _dexRouters[0];
         dexRouters[1] = _dexRouters[1];
-        dexPairs[0] = _dexPairs[0];
-        dexPairs[1] = _dexPairs[1];
+        dexFactories[0] = _dexFactories[0];
+        dexFactories[1] = _dexFactories[1];
     }
 
     /**
@@ -176,7 +182,8 @@ contract FlashLoanArbitrage is IFlashLoanRecipient, Ownable {
         view
         returns (uint256 amountOut)
     {
-        IUniswapV2Pair pair = IUniswapV2Pair(dexPairs[dexIndex]);
+        IUniswapV2Factory factory = IUniswapV2Factory(dexFactories[dexIndex]);
+        IUniswapV2Pair pair = IUniswapV2Pair(factory.getPair(tokenIn, tokenOut));
 
         // Gets Liquidity pool reserves
         (uint256 reserve0, uint256 reserve1,) = pair.getReserves();

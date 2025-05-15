@@ -8,6 +8,7 @@ import { Deploy } from "script/Deploy.s.sol";
 import { HelperConfig } from "script/HelperConfig.s.sol";
 import { IERC20 } from "@openzeppelin/contracts/interfaces/IERC20.sol";
 import { IUniswapV2Pair } from "@uniswap/v2-core/contracts/interfaces/IUniswapV2Pair.sol";
+import { IUniswapV2Factory } from "@uniswap/v2-core/contracts/interfaces/IUniswapV2Factory.sol";
 import { Utils } from "script/Utils.s.sol";
 
 contract FlashLoanArbitrageTest is Test {
@@ -36,8 +37,8 @@ contract FlashLoanArbitrageTest is Test {
         // Modify reserves to be able to test a profiteable arbitrage
         (address token0, address token1) = Utils.sortTokens(tokenToBorrow, tokenToSwap);
 
-        address pairUni = config.dexPairs[0];
-        address pairSushi = config.dexPairs[1];
+        address pairUni = IUniswapV2Factory(config.dexFactories[0]).getPair(tokenToBorrow, tokenToSwap);
+        address pairSushi = IUniswapV2Factory(config.dexFactories[1]).getPair(tokenToBorrow, tokenToSwap);
 
         // Uniswap: cheaper
         if (token0 == tokenToBorrow) {
@@ -115,16 +116,16 @@ contract FlashLoanArbitrageTest is Test {
     // updateDEXes
     function test_updateDEXes() public {
         address[2] memory newDexRouters = [makeAddr("Router1"), makeAddr("Router2")];
-        address[2] memory newdexPairs = [makeAddr("Factory1"), makeAddr("Factory2")];
+        address[2] memory newdexFactories = [makeAddr("Factory1"), makeAddr("Factory2")];
 
         vm.expectRevert(abi.encodeWithSignature("OwnableUnauthorizedAccount(address)", address(this)));
-        arbitrageContract.updateDEXes(newDexRouters, newdexPairs);
+        arbitrageContract.updateDEXes(newDexRouters, newdexFactories);
 
         vm.prank(OWNER);
-        arbitrageContract.updateDEXes(newDexRouters, newdexPairs);
+        arbitrageContract.updateDEXes(newDexRouters, newdexFactories);
         assertEq(arbitrageContract.dexRouters(0), newDexRouters[0]);
         assertEq(arbitrageContract.dexRouters(1), newDexRouters[1]);
-        assertEq(arbitrageContract.dexPairs(0), newdexPairs[0]);
-        assertEq(arbitrageContract.dexPairs(1), newdexPairs[1]);
+        assertEq(arbitrageContract.dexFactories(0), newdexFactories[0]);
+        assertEq(arbitrageContract.dexFactories(1), newdexFactories[1]);
     }
 }
