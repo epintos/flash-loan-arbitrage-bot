@@ -2,6 +2,7 @@ import axios from 'axios';
 import * as dotenv from 'dotenv';
 import { ethers } from 'ethers';
 import * as fs from 'fs';
+import { loadFoundryWallet } from './loadFoundryWallet';
 
 dotenv.config({ path: '../smart-contracts/.env' });
 
@@ -100,16 +101,20 @@ const config: Config = {
   pollingInterval: 15000 // 15 seconds
 };
 
-// Setup provider and wallet
-const provider = new ethers.providers.JsonRpcProvider(config.providerUrl);
-const wallet = new ethers.Wallet(config.privateKey, provider);
 
-// Contract instance
-const arbitrageContract = new ethers.Contract(
-  config.arbitrageContractAddress,
-  arbitractContractABI,
-  wallet
-);
+let wallet;
+let arbitrageContract: ethers.Contract;
+let provider: ethers.providers.JsonRpcProvider;
+
+const connectWallet = async () => {
+  provider = new ethers.providers.JsonRpcProvider(config.providerUrl);
+  wallet = (await loadFoundryWallet()).connect(provider);
+  arbitrageContract = new ethers.Contract(
+    config.arbitrageContractAddress,
+    arbitractContractABI,
+    wallet
+  );
+};
 
 const convertToUSD = async (tokenAddress: string, amount: ethers.BigNumber, decimals: number): Promise<number> => {
   const price = await getTokenUSDValue(tokenAddress);
@@ -233,6 +238,8 @@ const getERC20Balance = async (token: Token): Promise<string> => {
 
 
 const monitorArbitrageOpportunities = async (): Promise<void> => {
+  await connectWallet();
+
   console.log('Monitoring arbitrage opportunities...');
 
   console.log('Checking balances...');

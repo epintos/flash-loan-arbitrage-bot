@@ -14,13 +14,13 @@ install :
 	forge install Uniswap/v2-periphery --no-git
 
 deploy-mainnet :
-	@forge script script/Deploy.s.sol:Deploy --rpc-url $(MAINNET_RPC_URL) --account $(MAINNET_ACCOUNT) --sender $(MAINNET_ACCOUNT_ADDRESS) --broadcast -vvvv
+	@forge script script/Deploy.s.sol:Deploy --rpc-url $(MAINNET_RPC_URL) --account $(MAINNET_WALLET_NAME) --sender $(MAINNET_ACCOUNT_ADDRESS) --broadcast -vvvv
 
 deploy-sepolia :
-	@forge script script/Deploy.s.sol:Deploy --rpc-url $(SEPOLIA_RPC_URL) --account $(SEPOLIA_ACCOUNT) --sender $(SEPOLIA_ACCOUNT_ADDRESS) --broadcast -vvvv
+	@forge script script/Deploy.s.sol:Deploy --rpc-url $(SEPOLIA_RPC_URL) --account $(SEPOLIA_WALLET_NAME) --sender $(SEPOLIA_ACCOUNT_ADDRESS) --broadcast -vvvv
 
 deploy-anvil :
-	@forge script script/Deploy.s.sol:Deploy --rpc-url $(RPC_URL) --account $(ANVIL_ACCOUNT) --sender $(ANVIL_ACCOUNT_ADDRESS) --broadcast -vvvv
+	@forge script script/Deploy.s.sol:Deploy --rpc-url $(RPC_URL) --account $(ANVIL_WALLET_NAME) --sender $(ANVIL_ACCOUNT_ADDRESS) --broadcast -vvvv
 
 # 22487576 Is a block that guarantee whale accounts have the tokens we need for testing purposes
 anvil-fork :
@@ -52,4 +52,4 @@ anvil-fork :
 # cast rpc anvil_stopImpersonatingAccount 0xF977814e90dA44bFA03b6295A0616a897441aceC
 
 change-reserves:
-	@forge script script/Interactions.s.sol:ChangeReserves --rpc-url $(RPC_URL) --account $(ANVIL_ACCOUNT) --sender $(ANVIL_ACCOUNT_ADDRESS) --broadcast -vvvv
+	@forge script script/Interactions.s.sol:ChangeReserves --rpc-url $(RPC_URL) --account $(ANVIL_WALLET_NAME) --sender $(ANVIL_ACCOUNT_ADDRESS) --broadcast -vvvv

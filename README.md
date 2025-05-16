@@ -14,6 +14,11 @@ For simplicity, the bot and the contract have been tested using [Anvil](https://
 
 Run the following commands in `./smart-contracts`:
 
+Import foundry wallet. This wallet will be used for othe bot too:
+```bash
+  cast wallet import NAME --interactive
+```
+
 Copy and complete the following `.env` file
 ```bash
   cp .env.example .env
